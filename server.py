@@ -3,7 +3,7 @@ import sqlite3
 import time
 import threading
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit, join_room
 import jwt
 
@@ -95,6 +95,33 @@ def admin_reset_hwid():
     conn.commit(); conn.close()
     return jsonify(ok=True)
 
+@app.get("/admin/list")
+def admin_list():
+    if not require_admin(request):
+        return jsonify(ok=False, err="unauthorized"), 401
+    q = request.args.get("q", "").strip()
+    conn = db_conn()
+    if q:
+        rows = conn.execute(
+            "SELECT username, expire_ts, hwid_lock, active FROM licenses WHERE username LIKE ? ORDER BY username",
+            (f"%{q}%",)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT username, expire_ts, hwid_lock, active FROM licenses ORDER BY username"
+        ).fetchall()
+    conn.close()
+    items = []
+    for r in rows:
+        items.append({
+            "username": r["username"],
+            "expire_ts": r["expire_ts"],
+            "expire_iso": datetime.fromtimestamp(r["expire_ts"], timezone.utc).isoformat(),
+            "hwid_lock": r["hwid_lock"],
+            "active": bool(r["active"])
+        })
+    return jsonify(ok=True, items=items)
+
 @app.post("/auth")
 def auth():
     data = request.get_json(force=True) or {}
@@ -156,6 +183,10 @@ def expire_watcher():
 
 threading.Thread(target=expire_watcher, daemon=True).start()
 init_db()
+
+@app.get("/admin/ui")
+def admin_ui():
+    return send_from_directory(".", "admin.html")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>License Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+    h1 { margin-bottom: 8px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    input, button { padding: 10px; font-size: 14px; }
+    button { cursor: pointer; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin: 14px 0; }
+    table { width:100%; border-collapse: collapse; margin-top:8px; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+    .muted { color:#666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>License Admin</h1>
+  <div class="card">
+    <label>Admin Token</label>
+    <input id="token" placeholder="ADMIN_TOKEN" style="width:100%; margin-top:6px;">
+    <div class="muted">Render'da env olarak verdiğin ADMIN_TOKEN burada kullanılacak.</div>
+  </div>
+
+  <div class="card">
+    <h3>Lisans Ekle / Güncelle (upsert)</h3>
+    <div class="row">
+      <input id="u" placeholder="username">
+      <input id="p" placeholder="password_hash (örn: Sifre123)">
+      <input id="e" type="datetime-local" placeholder="expire">
+      <input id="h" placeholder="hwid_lock (opsiyonel)">
+    </div>
+    <div style="margin-top:10px;">
+      <button onclick="addUpdate()">Ekle / Güncelle</button>
+      <button onclick="revoke()">İptal Et</button>
+      <button onclick="resetHWID()">HWID Sıfırla</button>
+    </div>
+    <pre id="out" class="muted"></pre>
+  </div>
+
+  <div class="card">
+    <h3>Lisanslar</h3>
+    <input id="q" placeholder="Ara (username)" style="width:100%;" oninput="listLicenses()">
+    <table id="tbl">
+      <thead><tr><th>Kullanıcı</th><th>Expire</th><th>Aktif</th><th>HWID</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+const BASE = location.origin;
+function tok() { return document.getElementById('token').value.trim(); }
+function v(id){ return document.getElementById(id).value.trim(); }
+function say(x){ document.getElementById('out').textContent = typeof x==='string'?x:JSON.stringify(x,null,2); }
+
+async function addUpdate(){
+  const body = {
+    username: v('u'),
+    password_hash: v('p'),
+    expire_date: v('e') ? new Date(v('e')).toISOString().slice(0,19) : null,
+    hwid_lock: v('h') || null,
+    active: true
+  };
+  let r = await fetch(BASE+'/admin/add_license', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok()},
+    body: JSON.stringify(body)
+  });
+  say(await r.json()); listLicenses();
+}
+
+async function revoke(){
+  let r = await fetch(BASE+'/admin/revoke', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok()},
+    body: JSON.stringify({username:v('u')})
+  });
+  say(await r.json()); listLicenses();
+}
+
+async function resetHWID(){
+  let r = await fetch(BASE+'/admin/reset_hwid', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok()},
+    body: JSON.stringify({username:v('u')})
+  });
+  say(await r.json()); listLicenses();
+}
+
+async function listLicenses(){
+  const q = document.getElementById('q').value.trim();
+  let r = await fetch(BASE+'/admin/list'+(q?('?q='+encodeURIComponent(q)):''),
+    { headers:{'Authorization':'Bearer '+tok()} });
+  let j = await r.json();
+  const tb = document.querySelector('#tbl tbody');
+  tb.innerHTML = '';
+  if(!j.ok) { tb.innerHTML = '<tr><td colspan=4>unauthorized</td></tr>'; return; }
+  j.items.forEach(it=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${it.username}</td>
+                    <td>${it.expire_iso}</td>
+                    <td>${it.active?'✅':'❌'}</td>
+                    <td>${it.hwid_lock||''}</td>`;
+    tb.appendChild(tr);
+  });
+}
+</script>
+</body>
+</html>
